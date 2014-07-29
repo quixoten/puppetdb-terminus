@@ -3,8 +3,8 @@
 PuppetDB Terminus packaged as a gem
 
 The version of PuppetDB used to build the gem is reflected in the gems version,
-e.g., version 2.0.0 of PuppetDB Terminus was built with the source from
-PuppetDB 2.0.0
+e.g., version 2.0.0.3 of PuppetDB Terminus is the third build against the
+source from PuppetDB 2.0.0
 
 ## Installation
 
