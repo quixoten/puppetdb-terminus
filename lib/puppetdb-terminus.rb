@@ -1,0 +1,1 @@
+require 'puppetdb/terminus'
