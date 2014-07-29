@@ -20,5 +20,4 @@ tmp
 *.o
 *.a
 mkmf.log
-/lib/puppet/
 *.tar.gz
