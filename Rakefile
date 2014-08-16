@@ -4,7 +4,7 @@ require "puppetdb-terminus"
 
 desc "Download source from PuppetDB #{PuppetDB::Terminus::VERSION}"
 task :download_source do
-  version = ::PuppetDB::Terminus::VERSION.sub(/\.[^.]+$/, '')
+  version = ::PuppetDB::Terminus::VERSION.split(".")[0..2].join(".")
   archive = "#{version}.tar.gz"
   url     = "https://github.com/puppetlabs/puppetdb/archive/#{archive}"
 
