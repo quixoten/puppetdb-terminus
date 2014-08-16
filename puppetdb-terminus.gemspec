@@ -4,13 +4,13 @@ $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
 require 'puppetdb/terminus/version'
 
 Gem::Specification.new do |spec|
-  spec.name          = "md-puppetdb-terminus"
+  spec.name          = "quixoten-puppetdb-terminus"
   spec.version       = PuppetDB::Terminus::VERSION
-  spec.authors       = ["MoneyDesktop, Inc."]
-  spec.email         = ["Devin Christensen"]
+  spec.authors       = ["Devin Christensen"]
+  spec.email         = ["quixoten@gmail.com"]
   spec.summary       = %q{PuppetDB Terminus}
   spec.description   = %q{PuppetDB Terminus}
-  spec.homepage      = "https://github.com/devin-c/puppetdb-terminus"
+  spec.homepage      = "https://github.com/quixoten/puppetdb-terminus"
   spec.license       = "Apache 2.0"
 
   spec.files         = `git ls-files -z`.split("\x0")

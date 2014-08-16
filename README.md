@@ -10,7 +10,7 @@ source from PuppetDB 2.0.0
 
 Add this line to your application's Gemfile:
 
-    gem 'md-puppetdb-terminus'
+    gem 'quixoten-puppetdb-terminus'
 
 And then execute:
 
@@ -18,7 +18,7 @@ And then execute:
 
 Or install it yourself as:
 
-    $ gem install md-puppetdb-terminus
+    $ gem install quixoten-puppetdb-terminus
 
 ## Contributing
 
