@@ -1,5 +1,5 @@
 module PuppetDB
   module Terminus
-    VERSION = "2.0.0.3"
+    VERSION = "2.0.0.rc1"
   end
 end
