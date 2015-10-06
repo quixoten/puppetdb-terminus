@@ -30,6 +30,10 @@ module Puppet::Util::Puppetdb
     @config
   end
 
+  def self.puppet3compat?
+    defined?(Puppet::Parser::AST::HashOrArrayAccess)
+  end
+
   # This magical stuff is needed so that the indirector termini will make requests to
   # the correct host/port, because this module gets mixed in to our indirector
   # termini.
@@ -76,7 +80,8 @@ module Puppet::Util::Puppetdb
   # @param version [Number] version number of command
   # @return [Hash <String, String>]
   def submit_command(certname, payload, command_name, version)
-    profile "Submitted command '#{command_name}' version '#{version}'" do
+    profile("Submitted command '#{command_name}' version '#{version}'",
+            [:puppetdb, :command, :submit, command_name, version]) do
       command = Puppet::Util::Puppetdb::Command.new(command_name, version, certname, payload)
       command.submit
     end
@@ -90,11 +95,18 @@ module Puppet::Util::Puppetdb
   # in the profiled hierachy.
   #
   # @param message [String] A description of the profiled event
+  # @param metric_id [Array] A list of strings making up the ID of a metric to profile
   # @param block [Block] The segment of code to profile
   # @api public
-  def profile(message, &block)
+  def profile(message, metric_id, &block)
     message = "PuppetDB: " + message
-    Puppet::Util::Profiler.profile(message, &block)
+    arity = Puppet::Util::Profiler.method(:profile).arity
+    case arity
+    when 1
+      Puppet::Util::Profiler.profile(message, &block)
+    when 2, -2
+      Puppet::Util::Profiler.profile(message, metric_id, &block)
+    end
   end
 
   # @!group Private instance methods

@@ -8,7 +8,7 @@ class Puppet::Resource::Catalog::Puppetdb < Puppet::Indirector::REST
   include Puppet::Util::Puppetdb::CommandNames
 
   def save(request)
-    profile "catalog#save" do
+    profile("catalog#save", [:puppetdb, :catalog, :save, request.key]) do
       catalog = munge_catalog(request.instance, extract_extra_request_data(request))
       submit_command(request.key, catalog, CommandReplaceCatalog, 5)
     end
@@ -28,12 +28,10 @@ class Puppet::Resource::Catalog::Puppetdb < Puppet::Indirector::REST
   end
 
   def munge_catalog(catalog, extra_request_data = {})
-    profile "Munge catalog" do
-      hash = profile "Convert catalog to PSON data hash" do
-        catalog.to_pson_data_hash
+    profile("Munge catalog", [:puppetdb, :catalog, :munge]) do
+      data = profile("Convert catalog to JSON data hash", [:puppetdb, :catalog, :convert_to_hash]) do
+        catalog.to_data_hash
       end
-
-      data = hash['data']
 
       add_parameters_if_missing(data)
       add_namevar_aliases(data, catalog)
@@ -111,7 +109,8 @@ class Puppet::Resource::Catalog::Puppetdb < Puppet::Indirector::REST
 
   def stringify_titles(hash)
     resources = hash['resources']
-    profile "Stringify titles (resource count: #{resources.count})" do
+    profile("Stringify titles (resource count: #{resources.count})",
+            [:puppetdb, :titles, :stringify]) do
       resources.each do |resource|
         resource['title'] = resource['title'].to_s
       end
@@ -122,7 +121,8 @@ class Puppet::Resource::Catalog::Puppetdb < Puppet::Indirector::REST
 
   def add_parameters_if_missing(hash)
     resources = hash['resources']
-    profile "Add parameters if missing (resource count: #{resources.count})" do
+    profile("Add parameters if missing (resource count: #{resources.count})",
+            [:puppetdb, :parameters, :add_missing]) do
       resources.each do |resource|
         resource['parameters'] ||= {}
       end
@@ -133,7 +133,8 @@ class Puppet::Resource::Catalog::Puppetdb < Puppet::Indirector::REST
 
   def add_namevar_aliases(hash, catalog)
     resources = hash['resources']
-    profile "Add namevar aliases (resource count: #{resources.count})" do
+    profile("Add namevar aliases (resource count: #{resources.count})",
+            [:puppetdb, :namevar_aliases, :add]) do
       resources.each do |resource|
         real_resource = catalog.resource(resource['type'], resource['title'])
 
@@ -175,7 +176,8 @@ class Puppet::Resource::Catalog::Puppetdb < Puppet::Indirector::REST
 
   def sort_unordered_metaparams(hash)
     resources = hash['resources']
-    profile "Sort unordered metaparams (resource count: #{resources.count})" do
+    profile("Sort unordered metaparams (resource count: #{resources.count})",
+            [:puppetdb, :metaparams, :sort]) do
       resources.each do |resource|
         params = resource['parameters']
         UnorderedMetaparams.each do |metaparam|
@@ -192,7 +194,8 @@ class Puppet::Resource::Catalog::Puppetdb < Puppet::Indirector::REST
 
   def munge_edges(hash)
     edges = hash['edges']
-    profile "Munge edges (edge count: #{edges.count})" do
+    profile("Munge edges (edge count: #{edges.count})",
+            [:puppetdb, :edges, :munge]) do
       edges.each do |edge|
         %w[source target].each do |vertex|
           edge[vertex] = resource_ref_to_hash(edge[vertex]) if edge[vertex].is_a?(String)
@@ -208,7 +211,8 @@ class Puppet::Resource::Catalog::Puppetdb < Puppet::Indirector::REST
     resources = hash['resources']
     aliases = {}
 
-    profile "Map aliases to title (resource count: #{resources.count})" do
+    profile("Map aliases to title (resource count: #{resources.count})",
+            [:puppetdb, :aliases, :map_to_title]) do
       resources.each do |resource|
         names = resource['parameters']['alias'] || []
         resource_hash = {'type' => resource['type'], 'title' => resource['title']}
@@ -223,23 +227,26 @@ class Puppet::Resource::Catalog::Puppetdb < Puppet::Indirector::REST
   end
 
   def synthesize_edges(hash, catalog)
-    profile "Synthesize edges" do
+    profile("Synthesize edges",
+            [:puppetdb, :edges, :synthesize]) do
       aliases = map_aliases_to_title(hash)
 
       resource_table = {}
-      profile "Build up resource_table" do
+      profile("Build up resource_table",
+              [:puppetdb, :edges, :synthesize, :resource_table, :build]) do
         hash['resources'].each do |resource|
           resource_table[ [resource['type'], resource['title']] ] = resource
         end
       end
 
-      profile "Primary synthesis" do
+      profile("Primary synthesis",
+              [:puppetdb, :edges, :synthesize, :primary_synthesis])do
         hash['resources'].each do |resource|
           # Standard virtual resources don't appear in the catalog. However,
           # exported resources which haven't been also collected will appears as
           # exported and virtual (collected ones will only be exported). They will
           # eventually be removed from the catalog, so we can't add edges involving
-          # them. Puppet::Resource#to_pson_data_hash omits 'virtual', so we have to
+          # them. Puppet::Resource#to_data_hash omits 'virtual', so we have to
           # look it up in the catalog to find that information. This isn't done in
           # a separate step because we don't actually want to send the field (it
           # will always be false). See ticket #16472.
@@ -266,7 +273,7 @@ class Puppet::Resource::Catalog::Puppetdb < Puppet::Indirector::REST
                 # case problem here: http://projects.puppetlabs.com/issues/19474
                 # Once that problem is solved and older versions of Puppet that have
                 # the bug are no longer supported we can probably remove this code.
-                unless other_ref =~ /^[A-Z][a-z0-9_]*(::[A-Z][a-z0-9_]*)*\[.*\]/
+                unless other_ref =~ /^[A-Z][a-z0-9_-]*(::[A-Z][a-z0-9_-]*)*\[.*\]/
                   rel = edge_to_s(resource_hash_to_ref(resource_hash), other_ref, param)
                   raise Puppet::Error, "Invalid relationship: #{rel}, because " +
                     "#{other_ref} doesn't seem to be in the correct format. " +
@@ -328,7 +335,8 @@ class Puppet::Resource::Catalog::Puppetdb < Puppet::Indirector::REST
         end
       end
 
-      profile "Make edges unique" do
+      profile("Make edges unique",
+              [:puppetdb, :edges, :synthesize, :make_unique]) do
         hash['edges'].uniq!
       end
 
@@ -337,7 +345,8 @@ class Puppet::Resource::Catalog::Puppetdb < Puppet::Indirector::REST
   end
 
   def filter_keys(hash)
-    profile "Filter extraneous keys from the catalog" do
+    profile("Filter extraneous keys from the catalog",
+            [:puppetdb, :keys, :filter_extraneous]) do
       hash.delete_if do |k,v|
         ! ['name', 'version', 'edges', 'resources'].include?(k)
       end
