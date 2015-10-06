@@ -5,8 +5,6 @@ require 'puppet/util/puppetdb/command_names'
 Puppet::Reports.register_report(:puppetdb) do
   include Puppet::Util::Puppetdb
 
-  Puppet::Util::Puppetdb::GlobalCheck.run
-
   CommandStoreReport = Puppet::Util::Puppetdb::CommandNames::CommandStoreReport
 
   desc <<-DESC
@@ -126,6 +124,7 @@ Puppet::Reports.register_report(:puppetdb) do
       "message"           => nil,
       "file"              => resource_status.file,
       "line"              => resource_status.line,
+      "containment-path" => resource_status.containment_path,
     }
   end
 
