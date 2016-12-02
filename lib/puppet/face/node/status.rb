@@ -17,14 +17,11 @@ Puppet::Face.define(:node, '0.0.1') do
       opts = args.pop
       raise ArgumentError, "Please provide at least one node" if args.empty?
 
-      server = Puppet::Util::Puppetdb.server
-      port = Puppet::Util::Puppetdb.port
-
-      http = Puppet::Network::HttpPool.http_instance(server, port)
-
       args.map do |node|
         begin
-          response = http.get(Puppet::Util::Puppetdb.url_path("/v3/nodes/#{CGI.escape(node)}"), headers)
+          response = Puppet::Util::Puppetdb::Http.action("/pdb/query/v4/nodes/#{CGI.escape(node)}") do |http_instance, path|
+             http_instance.get(path, headers)
+          end
           if response.is_a? Net::HTTPSuccess
             result = JSON.parse(response.body)
           elsif response.is_a? Net::HTTPNotFound
@@ -51,6 +48,8 @@ Puppet::Face.define(:node, '0.0.1') do
 
         if status['deactivated']
           lines << "Deactivated at #{status['deactivated']}"
+        elsif status['expired']
+          lines << "Expired at #{status['expired']}"
         else
           lines << "Currently active"
         end

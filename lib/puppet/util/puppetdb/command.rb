@@ -1,6 +1,6 @@
 require 'puppet/error'
-require 'puppet/network/http_pool'
 require 'puppet/util/puppetdb'
+require 'puppet/util/puppetdb/http'
 require 'puppet/util/puppetdb/command_names'
 require 'puppet/util/puppetdb/char_encoding'
 require 'json'
@@ -9,7 +9,7 @@ class Puppet::Util::Puppetdb::Command
   include Puppet::Util::Puppetdb
   include Puppet::Util::Puppetdb::CommandNames
 
-  CommandsUrl = "/v3/commands"
+  CommandsUrl = "/pdb/cmd/v1"
 
   # Public instance methods
 
@@ -28,7 +28,21 @@ class Puppet::Util::Puppetdb::Command
     @version = version
     @certname = certname
     profile("Format payload", [:puppetdb, :payload, :format]) do
-      @payload = self.class.format_payload(command, version, payload)
+      @payload = Puppet::Util::Puppetdb::CharEncoding.utf8_string({
+        :command => command,
+        :version => version,
+        :payload => payload,
+      # We use to_pson still here, to work around the support for shifting
+      # binary data from a catalog to PuppetDB. Attempting to use to_json
+      # we get to_json conversion errors:
+      #
+      #   Puppet source sequence is illegal/malformed utf-8
+      #   json/ext/GeneratorMethods.java:71:in `to_json'
+      #   puppet/util/puppetdb/command.rb:31:in `initialize'
+      #
+      # This is roughly inline with how Puppet serializes for catalogs as of
+      # Puppet 4.1.0. We need a better answer to non-utf8 data end-to-end.
+      }.to_pson)
     end
   end
 
@@ -44,9 +58,9 @@ class Puppet::Util::Puppetdb::Command
 
     begin
       response = profile("Submit command HTTP post", [:puppetdb, :command, :submit]) do
-        http = Puppet::Network::HttpPool.http_instance(config.server, config.port)
-        http.post(Puppet::Util::Puppetdb.url_path(CommandsUrl + "?checksum=#{checksum}"),
-                  payload, headers)
+        Http.action("#{CommandsUrl}?checksum=#{checksum}") do |http_instance, path|
+          http_instance.post(path, payload, headers)
+        end
       end
 
       Puppet::Util::Puppetdb.log_x_deprecation_header(response)
@@ -65,33 +79,21 @@ class Puppet::Util::Puppetdb::Command
         end
       end
     rescue => e
-      error = "Failed to submit '#{command}' command#{for_whom} to PuppetDB at #{config.server}:#{config.port}: #{e}"
       if config.soft_write_failure
-        Puppet.err error
+        Puppet.err e.message
       else
         # TODO: Use new exception handling methods from Puppet 3.0 here as soon as
         #  we are able to do so (can't call them yet w/o breaking backwards
         #  compatibility.)  We should either be using a nested exception or calling
         #  Puppet::Util::Logging#log_exception or #log_and_raise here; w/o them
         #  we lose context as to where the original exception occurred.
-        puts e, e.backtrace if Puppet[:trace]
-        raise Puppet::Error, error
+        if Puppet[:trace]
+          Puppet.err(e)
+          Puppet.err(e.backtrace)
+        end
+        raise Puppet::Util::Puppetdb::CommandSubmissionError.new(e.message, {:command => command, :for_whom => for_whom})
       end
     end
-  end
-
-
-  # @!group Private class methods
-
-  # @api private
-  def self.format_payload(command, version, payload)
-    message = {
-      :command => command,
-      :version => version,
-      :payload => payload,
-    }.to_pson
-
-    Puppet::Util::Puppetdb::CharEncoding.utf8_string(message)
   end
 
   # @!group Private instance methods
@@ -100,7 +102,7 @@ class Puppet::Util::Puppetdb::Command
   def headers
     {
       "Accept" => "application/json",
-      "Content-Type" => "application/json",
+      "Content-Type" => "application/json; charset=utf-8",
     }
   end
 

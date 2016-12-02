@@ -16,6 +16,14 @@ class Puppet::Node::Facts::Puppetdb < Puppet::Indirector::REST
     trusted.to_h
   end
 
+  def maybe_strip_internal(facts)
+    if Puppet::Node::Facts.method_defined? :strip_internal
+      facts.strip_internal
+    else
+      facts.values
+    end
+  end
+
   def save(request)
     profile("facts#save", [:puppetdb, :facts, :save, request.key]) do
       payload = profile("Encode facts command submission payload",
@@ -27,27 +35,28 @@ class Puppet::Node::Facts::Puppetdb < Puppet::Indirector::REST
           facts.values[:trusted] = get_trusted_info(request.node)
         end
         {
-          "name" => facts.name,
+          "certname" => facts.name,
           "values" => facts.values,
           # PDB-453: we call to_s to avoid a 'stack level too deep' error
           # when we attempt to use ActiveSupport 2.3.16 on RHEL 5 with
           # legacy storeconfigs.
           "environment" => request.options[:environment] || request.environment.to_s,
-          "producer-timestamp" => request.options[:producer_timestamp] || Time.now.iso8601,
+          "producer_timestamp" => request.options[:producer_timestamp] || Time.now.iso8601(5),
         }
       end
 
-      submit_command(request.key, payload, CommandReplaceFacts, 3)
+      submit_command(request.key, payload, CommandReplaceFacts, 4)
     end
   end
 
   def find(request)
     profile("facts#find", [:puppetdb, :facts, :find, request.key]) do
       begin
-        url = Puppet::Util::Puppetdb.url_path("/v3/nodes/#{CGI.escape(request.key)}/facts")
-        response = profile("Query for nodes facts: #{url}",
-                           [:puppetdb, :facts, :find, :query_nodes, request.key]) do
-          http_get(request, url, headers)
+        response = Http.action("/pdb/query/v4/nodes/#{CGI.escape(request.key)}/facts") do |http_instance, path|
+          profile("Query for nodes facts: #{URI.unescape(path)}",
+                  [:puppetdb, :facts, :find, :query_nodes, request.key]) do
+            http_instance.get(path, headers)
+          end
         end
         log_x_deprecation_header(response)
 
@@ -55,24 +64,20 @@ class Puppet::Node::Facts::Puppetdb < Puppet::Indirector::REST
           profile("Parse fact query response (size: #{response.body.size})",
                   [:puppetdb, :facts, :find, :parse_response, request.key]) do
             result = JSON.parse(response.body)
-            # Note: the Inventory Service API appears to expect us to return nil here
-            # if the node isn't found.  However, PuppetDB returns an empty array in
-            # this case; for now we will just look for that condition and assume that
-            # it means that the node wasn't found, so we will return nil.  In the
-            # future we may want to improve the logic such that we can distinguish
-            # between the "node not found" and the "no facts for this node" cases.
-            if result.empty?
-              return nil
-            end
+
             facts = result.inject({}) do |a,h|
               a.merge(h['name'] => h['value'])
             end
+
             Puppet::Node::Facts.new(request.key, facts)
           end
         else
           # Newline characters cause an HTTP error, so strip them
           raise "[#{response.code} #{response.message}] #{response.body.gsub(/[\r\n]/, '')}"
         end
+      rescue NotFoundError => e
+        # This is what the inventory service expects when there is no data
+        return nil
       rescue => e
         raise Puppet::Error, "Failed to find facts from PuppetDB at #{self.class.server}:#{self.class.port}: #{e}"
       end
@@ -115,10 +120,11 @@ class Puppet::Node::Facts::Puppetdb < Puppet::Indirector::REST
       query_param = CGI.escape(query.to_json)
 
       begin
-        url = Puppet::Util::Puppetdb.url_path("/v3/nodes?query=#{query_param}")
-        response = profile("Fact query request: #{URI.unescape(url)}",
-                           [:puppetdb, :facts, :search, :query_request, request.key]) do
-          http_get(request, url, headers)
+        response = Http.action("/pdb/query/v4/nodes?query=#{query_param}") do |http_instance, path|
+          profile("Fact query request: #{URI.unescape(path)}",
+                  [:puppetdb, :facts, :search, :query_request, request.key]) do
+            http_instance.get(path, headers)
+          end
         end
         log_x_deprecation_header(response)
 
@@ -132,7 +138,7 @@ class Puppet::Node::Facts::Puppetdb < Puppet::Indirector::REST
           raise "[#{response.code} #{response.message}] #{response.body.gsub(/[\r\n]/, '')}"
         end
       rescue => e
-        raise Puppet::Error, "Could not perform inventory search from PuppetDB at #{self.class.server}:#{self.class.port}: #{e}"
+        raise Puppet::Util::Puppetdb::InventorySearchError, e.message
       end
     end
   end

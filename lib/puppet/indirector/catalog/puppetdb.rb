@@ -10,7 +10,7 @@ class Puppet::Resource::Catalog::Puppetdb < Puppet::Indirector::REST
   def save(request)
     profile("catalog#save", [:puppetdb, :catalog, :save, request.key]) do
       catalog = munge_catalog(request.instance, extract_extra_request_data(request))
-      submit_command(request.key, catalog, CommandReplaceCatalog, 5)
+      submit_command(request.key, catalog, CommandReplaceCatalog, 6)
     end
   end
 
@@ -22,9 +22,14 @@ class Puppet::Resource::Catalog::Puppetdb < Puppet::Indirector::REST
   def extract_extra_request_data(request)
     {
       :transaction_uuid => request.options[:transaction_uuid],
-      :environment => request.environment,
-      :producer_timestamp => request.options[:producer_timestamp] || Time.now.iso8601,
+      :environment => request.environment.to_s,
+      :producer_timestamp => request.options[:producer_timestamp] || Time.now.iso8601(5),
     }
+  end
+
+  def hashify_tags(hash)
+    hash["resources"] = hash["resources"].map { |resource| resource["tags"] = resource["tags"].to_data_hash; resource }
+    hash
   end
 
   def munge_catalog(catalog, extra_request_data = {})
@@ -37,6 +42,7 @@ class Puppet::Resource::Catalog::Puppetdb < Puppet::Indirector::REST
       add_namevar_aliases(data, catalog)
       stringify_titles(data)
       stringify_version(data)
+      hashify_tags(data)
       sort_unordered_metaparams(data)
       munge_edges(data)
       synthesize_edges(data, catalog)
@@ -44,6 +50,7 @@ class Puppet::Resource::Catalog::Puppetdb < Puppet::Indirector::REST
       add_transaction_uuid(data, extra_request_data[:transaction_uuid])
       add_environment(data, extra_request_data[:environment])
       add_producer_timestamp(data, extra_request_data[:producer_timestamp])
+      change_name_to_certname(data)
 
       data
     end
@@ -59,6 +66,17 @@ class Puppet::Resource::Catalog::Puppetdb < Puppet::Indirector::REST
   # Metaparams that may contain arrays, but whose semantics are
   # fundamentally unordered
   UnorderedMetaparams = [:alias, :audit, :before, :check, :notify, :require, :subscribe, :tag]
+
+  # Change the name field to certname
+  #
+  # @param hash [Hash] original data hash
+  # @return [Hash] returns original hash with 'name' changed to 'certname'
+  # @api private
+  def change_name_to_certname(hash)
+    hash['certname'] = hash.delete('name')
+
+    hash
+  end
 
   # Include environment in hash, returning the complete hash.
   #
@@ -79,7 +97,7 @@ class Puppet::Resource::Catalog::Puppetdb < Puppet::Indirector::REST
   # @return [Hash] returns original hash augmented with producer_timestamp
   # @api private
   def add_producer_timestamp(hash, producer_timestamp)
-    hash['producer-timestamp'] = producer_timestamp
+    hash['producer_timestamp'] = producer_timestamp
 
     hash
   end
@@ -91,7 +109,7 @@ class Puppet::Resource::Catalog::Puppetdb < Puppet::Indirector::REST
   # @return [Hash] returns original hash augmented with transaction_uuid
   # @api private
   def add_transaction_uuid(hash, transaction_uuid)
-    hash['transaction-uuid'] = transaction_uuid
+    hash['transaction_uuid'] = transaction_uuid
 
     hash
   end

@@ -35,36 +35,36 @@ if Puppet::Util::Puppetdb.puppet3compat?
         begin
           Puppet::Rails.connect
 
+          timestamp = Time.now
+
           # Fetch all nodes, including exported resources and their params
           nodes = Puppet::Rails::Host.all(:include => {:resources => [:param_values, :puppet_tags]},
                                           :conditions => {:resources => {:exported => true}})
 
-          catalogs = nodes.map { |node| node_to_catalog_hash(node) }
+          catalogs = nodes.map { |node| node_to_catalog_hash(node, timestamp.iso8601(5)) }
 
           catalog_dir = File.join(workdir, 'catalogs')
           FileUtils.mkdir(catalog_dir)
 
           catalogs.each do |catalog|
-            filename = File.join(catalog_dir, "#{catalog[:data][:name]}.json")
+            filename = File.join(catalog_dir, "#{catalog[:certname]}.json")
 
             File.open(filename, 'w') do |file|
-              file.puts catalog.to_pson
+              file.puts catalog.to_json
             end
           end
 
           node_names = nodes.map(&:name).sort
 
-          timestamp = Time.now
-
           File.open(File.join(workdir, 'export-metadata.json'), 'w') do |file|
             metadata = {
               'timestamp' => timestamp,
-              'command-versions' => {
-                'replace-catalog' => 2,
+              'command_versions' => {
+                'replace_catalog' => 6,
               }
             }
 
-            file.puts metadata.to_pson
+            file.puts metadata.to_json
           end
 
           tarfile = destination_file(timestamp)
@@ -116,20 +116,21 @@ if Puppet::Util::Puppetdb.puppet3compat?
       Puppet::Util::Execution.execute(command)
     end
 
-    def node_to_catalog_hash(node)
+    def node_to_catalog_hash(node, timestamp)
       resources = node.resources.map { |resource| resource_to_hash(resource) }
       edges = node.resources.map { |resource| resource_to_edge_hash(resource) }
 
       {
+        :environment => "production",
         :metadata => {
           :api_version => 1,
         },
-        :data => {
-          :name => node.name,
-          :version => node.last_compile || Time.now,
-          :edges => edges,
-          :resources => resources + [stage_main_hash],
-        },
+        :certname => node.name,
+        :version => node.last_compile || Time.now,
+        :edges => edges,
+        :resources => resources + [stage_main_hash],
+        :timestamp => timestamp,
+        :producer_timestamp => timestamp,
       }
     end
 
