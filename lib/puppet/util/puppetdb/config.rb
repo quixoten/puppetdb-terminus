@@ -1,5 +1,4 @@
 require 'puppet/util/puppetdb/command_names'
-require 'puppet/util/puppetdb/blacklist'
 require 'uri'
 
 module Puppet::Util::Puppetdb
@@ -13,8 +12,8 @@ module Puppet::Util::Puppetdb
         :server                    => "puppetdb",
         :port                      => 8081,
         :soft_write_failure        => false,
-        :ignore_blacklisted_events => true,
-        :server_url_timeout        => 30
+        :server_url_timeout        => 30,
+        :include_unchanged_resources => false,
       }
 
       config_file ||= File.join(Puppet[:confdir], "puppetdb.conf")
@@ -57,6 +56,7 @@ module Puppet::Util::Puppetdb
         !([:server,
            :port,
            :ignore_blacklisted_events,
+           :include_unchanged_resources,
            :soft_write_failure,
            :server_urls,
            :server_url_timeout].include?(k))
@@ -70,9 +70,9 @@ module Puppet::Util::Puppetdb
         config_hash[:server_urls] = ["https://#{config_hash[:server].strip}:#{config_hash[:port].to_s}"]
       end
       config_hash[:server_urls] = convert_and_validate_urls(config_hash[:server_urls])
-      
+
       config_hash[:server_url_timeout] = config_hash[:server_url_timeout].to_i
-      config_hash[:ignore_blacklisted_events] = Puppet::Util::Puppetdb.to_bool(config_hash[:ignore_blacklisted_events])
+      config_hash[:include_unchanged_resources] = Puppet::Util::Puppetdb.to_bool(config_hash[:include_unchanged_resources])
       config_hash[:soft_write_failure] = Puppet::Util::Puppetdb.to_bool(config_hash[:soft_write_failure])
 
       self.new(config_hash, uses_server_urls)
@@ -86,7 +86,6 @@ module Puppet::Util::Puppetdb
 
     def initialize(config_hash = {}, uses_server_urls=nil)
       @config = config_hash
-      initialize_blacklisted_events()
       if !uses_server_urls
         Puppet.warning("Specification of server and port in puppetdb.conf is deprecated. Use the setting server_urls.")
       end
@@ -110,12 +109,8 @@ module Puppet::Util::Puppetdb
       config[:server_url_timeout]
     end
 
-    def ignore_blacklisted_events?
-      config[:ignore_blacklisted_events]
-    end
-
-    def is_event_blacklisted?(event)
-      @blacklist.is_event_blacklisted? event
+    def include_unchanged_resources?
+      config[:include_unchanged_resources]
     end
 
     def soft_write_failure
@@ -128,13 +123,7 @@ module Puppet::Util::Puppetdb
     #   @api private
     attr_reader :config
 
-    Blacklist = Puppet::Util::Puppetdb::Blacklist
-
     # @api private
-    def initialize_blacklisted_events(events = Blacklist::BlacklistedEvents)
-      @blacklist = Blacklist.new(events)
-    end
-
     def self.convert_and_validate_urls(uri_strings)
       uri_strings.map do |uri_string|
 
@@ -152,7 +141,6 @@ module Puppet::Util::Puppetdb
           raise "PuppetDB 'server_urls' cannot contain URL paths, found '#{uri_string}'"
         end
         uri.path = ''
-        
         uri
       end
     end
