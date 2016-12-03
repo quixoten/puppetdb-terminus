@@ -1,6 +1,6 @@
 module PuppetDB
   module Terminus
-    VERSION          = "4.1.3"
+    VERSION          = "4.1.4"
     UPSTREAM_VERSION = VERSION.split(".")[0..2].join(".")
   end
 end
