@@ -9,11 +9,14 @@ module Puppet::Util::Puppetdb
 
     def self.load(config_file = nil)
       defaults = {
-        :server                    => "puppetdb",
-        :port                      => 8081,
-        :soft_write_failure        => false,
-        :server_url_timeout        => 30,
+        :server_urls                 => "https://puppetdb:8081",
+        :soft_write_failure          => false,
+        :server_url_timeout          => 30,
         :include_unchanged_resources => false,
+        :min_successful_submissions => 1,
+        :submit_only_server_urls   => "",
+        :command_broadcast         => false,
+        :sticky_read_failover      => false
       }
 
       config_file ||= File.join(Puppet[:confdir], "puppetdb.conf")
@@ -22,7 +25,7 @@ module Puppet::Util::Puppetdb
         Puppet.debug("Configuring PuppetDB terminuses with config file #{config_file}")
         content = File.read(config_file)
       else
-        Puppet.debug("No #{config_file} file found; falling back to default server and port #{defaults[:server]}:#{defaults[:port]}")
+        Puppet.debug("No #{config_file} file found; falling back to default server_urls #{defaults[:server_urls]}")
         content = ''
       end
 
@@ -51,31 +54,53 @@ module Puppet::Util::Puppetdb
       main_section = result['main'] || {}
       # symbolize the keys
       main_section = main_section.inject({}) {|h, (k,v)| h[k.to_sym] = v ; h}
+
       # merge with defaults but filter out anything except the legal settings
       config_hash = defaults.merge(main_section).reject do |k, v|
-        !([:server,
-           :port,
+        !([:server_urls,
            :ignore_blacklisted_events,
            :include_unchanged_resources,
            :soft_write_failure,
-           :server_urls,
-           :server_url_timeout].include?(k))
+           :server_url_timeout,
+           :min_successful_submissions,
+           :submit_only_server_urls,
+           :command_broadcast,
+           :sticky_read_failover].include?(k))
       end
 
-      if config_hash[:server_urls]
-        uses_server_urls = true
-        config_hash[:server_urls] = config_hash[:server_urls].split(",").map {|s| s.strip}
-      else
-        uses_server_urls = false
-        config_hash[:server_urls] = ["https://#{config_hash[:server].strip}:#{config_hash[:port].to_s}"]
-      end
-      config_hash[:server_urls] = convert_and_validate_urls(config_hash[:server_urls])
+      parsed_urls = config_hash[:server_urls].split(",").map {|s| s.strip}
+      config_hash[:server_urls] = convert_and_validate_urls(parsed_urls)
 
       config_hash[:server_url_timeout] = config_hash[:server_url_timeout].to_i
       config_hash[:include_unchanged_resources] = Puppet::Util::Puppetdb.to_bool(config_hash[:include_unchanged_resources])
       config_hash[:soft_write_failure] = Puppet::Util::Puppetdb.to_bool(config_hash[:soft_write_failure])
 
-      self.new(config_hash, uses_server_urls)
+      config_hash[:submit_only_server_urls] = convert_and_validate_urls(config_hash[:submit_only_server_urls].split(",").map {|s| s.strip})
+      config_hash[:min_successful_submissions] = config_hash[:min_successful_submissions].to_i
+      config_hash[:command_broadcast] = Puppet::Util::Puppetdb.to_bool(config_hash[:command_broadcast])
+      config_hash[:sticky_read_failover] = Puppet::Util::Puppetdb.to_bool(config_hash[:sticky_read_failover])
+
+      if config_hash[:soft_write_failure] and config_hash[:min_successful_submissions] > 1
+        raise "soft_write_failure cannot be enabled when min_successful_submissions is greater than 1"
+      end
+
+      overlapping_server_urls = config_hash[:server_urls] & config_hash[:submit_only_server_urls]
+      if overlapping_server_urls.length > 0
+        overlapping_server_urls_strs = overlapping_server_urls.map { |u| u.to_s }
+        raise "Server URLs must be in either server_urls or submit_only_server_urls, not both. "\
+          "(#{overlapping_server_urls_strs.to_s} are in both)"
+      end
+
+      if config_hash[:min_successful_submissions] > 1 and not config_hash[:command_broadcast]
+        raise "command_broadcast must be set to true to use min_successful_submissions"
+      end
+
+      if config_hash[:min_successful_submissions] > config_hash[:server_urls].length
+        raise "min_successful_submissions (#{config_hash[:min_successful_submissions]}) must be less than "\
+          "or equal to the number of server_urls (#{config_hash[:server_urls].length})"
+      end
+
+      self.new(config_hash)
     rescue => detail
       Puppet.warning "Could not configure PuppetDB terminuses: #{detail}"
       Puppet.warning detail.backtrace if Puppet[:trace]
@@ -84,21 +109,8 @@ module Puppet::Util::Puppetdb
 
     # @!group Public instance methods
 
-    def initialize(config_hash = {}, uses_server_urls=nil)
+    def initialize(config_hash = {})
       @config = config_hash
-      if !uses_server_urls
-        Puppet.warning("Specification of server and port in puppetdb.conf is deprecated. Use the setting server_urls.")
-      end
-      # To provide accurate error messages to users about HTTP failures, we
-      # need to know whether they initially defined their config via the old
-      # server/port combo or the new server_urls. This boolean keeps track
-      # of how the user defined that config so that we can give them a
-      # better error message
-      @server_url_config = uses_server_urls
-    end
-
-    def server_url_config?
-      @server_url_config
     end
 
     def server_urls
@@ -115,6 +127,22 @@ module Puppet::Util::Puppetdb
 
     def soft_write_failure
       config[:soft_write_failure]
+    end
+
+    def min_successful_submissions
+      config[:min_successful_submissions]
+    end
+
+    def submit_only_server_urls
+      config[:submit_only_server_urls]
+    end
+
+    def command_broadcast
+      config[:command_broadcast]
+    end
+
+    def sticky_read_failover
+      config[:sticky_read_failover]
     end
 
     # @!group Private instance methods
