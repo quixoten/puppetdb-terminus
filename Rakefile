@@ -10,7 +10,7 @@ task :sync_with_upstream do
 
   `curl -sLO #{url}`
   FileUtils::rm_rf File.expand_path('../lib/puppet', __FILE__)
-  `tar -zxf #{archive} puppetdb-#{version}/puppet/lib/ --strip-components=2`
+  `tar --strip-components=2 -zxf #{archive} puppetdb-#{version}/puppet/lib/`
 end
 
 task :build => :sync_with_upstream
